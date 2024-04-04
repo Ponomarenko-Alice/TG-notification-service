@@ -1,0 +1,14 @@
+**/*build/
+bin/
+docs/
+td/
+
+# Libraries related directories
+lib/*
+
+# Log files extensions
+*.log
+# IDEA related files
+.idea/
+out/
+*.iml
