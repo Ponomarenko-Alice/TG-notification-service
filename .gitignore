@@ -11,4 +11,5 @@ lib/*
 # IDEA related files
 .idea/
 out/
+target/
 *.iml
