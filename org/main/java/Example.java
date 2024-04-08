@@ -1,5 +1,3 @@
-package java;
-
 import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
 
@@ -14,9 +12,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * Example class for TDLib usage from Java.
- */
+
 public final class Example {
     private static Client client = null;
 
@@ -36,8 +32,6 @@ public final class Example {
     private static final ConcurrentMap<Integer, TdApi.SecretChat> secretChats = new ConcurrentHashMap<Integer, TdApi.SecretChat>();
 
     private static final ConcurrentMap<Long, TdApi.Chat> chats = new ConcurrentHashMap<Long, TdApi.Chat>();
-    //private static final NavigableSet<OrderedChat> mainChatList = new TreeSet<OrderedChat>();
-    private static boolean haveFullMainChatList = false;
 
     private static final ConcurrentMap<Long, TdApi.UserFullInfo> usersFullInfo = new ConcurrentHashMap<Long, TdApi.UserFullInfo>();
     private static final ConcurrentMap<Long, TdApi.BasicGroupFullInfo> basicGroupsFullInfo = new ConcurrentHashMap<Long, TdApi.BasicGroupFullInfo>();
@@ -56,7 +50,6 @@ public final class Example {
             System.out.print(currentPrompt);
         }
     }
-
 
 
     private static void onAuthorizationStateUpdated(TdApi.AuthorizationState authorizationState) {
@@ -183,20 +176,13 @@ public final class Example {
         try {
             switch (commands[0]) {
                 case "h": {
-                    //TdApi.GetChatHistory chatHistory = new TdApi.GetChatHistory(-1002021174198L, 1, -5,10,false);
                     client.send(new TdApi.GetChatHistory(-1002021174198L, 1, -99, 100, false), result -> {
                         if (result.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
                             TdApi.Messages messages = (TdApi.Messages) result;
-
                             for (TdApi.Message message : messages.messages) {
-                                // Forward the fetched messages to the bot
-                                //System.out.println(message.content);
-
                                 client.send(new TdApi.GetMessageThreadHistory(-1002021174198L, message.id, 1, -99, 100), resultThread -> {
                                     if (resultThread.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
                                         TdApi.Messages messageThreadHistory = (TdApi.Messages) resultThread;
-
-
                                         for (TdApi.Message messageThread : messageThreadHistory.messages) {
                                             System.out.println(messageThread.content + " --- " + message.id);
                                         }
@@ -209,25 +195,23 @@ public final class Example {
                     });
 
                 }
-                case "gcs": {
+                case "gcs":
                     int limit = 20;
                     if (commands.length > 1) {
                         limit = toInt(commands[1]);
                     }
                     //getMainChatList(limit);
                     break;
-                }
                 case "gc":
                     client.send(new TdApi.GetChat(getChatId(commands[1])), defaultHandler);
                     break;
                 case "me":
                     client.send(new TdApi.GetMe(), defaultHandler);
                     break;
-                case "sm": {
+                case "sm":
                     String[] args = commands[1].split(" ", 2);
                     sendMessage(getChatId(args[0]), args[1]);
                     break;
-                }
                 case "lo":
                     haveAuthorization = false;
                     client.send(new TdApi.LogOut(), defaultHandler);
