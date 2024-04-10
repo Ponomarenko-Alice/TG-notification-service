@@ -10,35 +10,38 @@ import java.util.Set;
 
 public class ChannelPostService {
 
-    private ChannelPostDAO channelPostDAO = new ChannelPostDAO();
+    private final ChannelPostDAO channelPostDAO = new ChannelPostDAO();
     @OneToMany(mappedBy="channel_post")
     private Set<Link> linkSet;
 
     public ChannelPostService() {
     }
 
-    public ChannelPost find(int id) {
+    public Object find(int id) {
         return channelPostDAO.findById(id);
     }
 
-    public void save(ChannelPost channelPost) {
-        channelPostDAO.save(channelPost);
+    public void save(Object o) {
+        channelPostDAO.merge(o);
     }
 
-    public void delete(ChannelPost channelPost) {
-        channelPostDAO.delete(channelPost);
+
+    public void delete(Object o) {
+        channelPostDAO.remove(o);
     }
 
-    public void update(ChannelPost channelPost) {
-        channelPostDAO.update(channelPost);
+    public void update(Object o) {
+        channelPostDAO.update(o);
     }
 
-    public List<ChannelPost> findAll() {
+
+
+    public List<ChannelPost> findAllChannelPosts() {
         return channelPostDAO.findAll();
     }
 
-    public Link findMessageThreadById(int id) {
-        return channelPostDAO.findMessageThreadById(id);
+    public Link findLinkById(int id) {
+        return channelPostDAO.findLinkById(id);
     }
 
 

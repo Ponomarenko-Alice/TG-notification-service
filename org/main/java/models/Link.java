@@ -11,13 +11,25 @@ public class Link {
     private int id;
     @Column(name = "link_text")
     private String linkText;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "channel_post_id")
+    private ChannelPost channelPost;
 
 
     public Link() {
     }
 
-    public Link(String linkText) {
+    public Link(String linkText, ChannelPost channelPost) {
         this.linkText = linkText;
+        this.channelPost = channelPost;
+    }
+
+    public ChannelPost getChannelPost() {
+        return channelPost;
+    }
+
+    public void setChannelPost(ChannelPost channelPost) {
+        this.channelPost = channelPost;
     }
 
     public int getId() {

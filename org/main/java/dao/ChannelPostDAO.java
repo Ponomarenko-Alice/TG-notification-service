@@ -17,30 +17,30 @@ public class ChannelPostDAO {
                 .get(ChannelPost.class, id);
     }
 
-    public void save(ChannelPost channelPost) {
+    public void merge(Object o) {
         Session session = HibernateSessionFactoryUtil.getSessionFactory().openSession();
         Transaction transaction = session.beginTransaction();
-        session.save(channelPost);
+        session.merge(o);
         transaction.commit();
         session.close();
     }
-    public void update(ChannelPost channelPost) {
+    public void update(Object o) {
         Session session = HibernateSessionFactoryUtil.getSessionFactory().openSession();
         Transaction tx1 = session.beginTransaction();
-        session.update(channelPost);
+        session.update(o);
         tx1.commit();
         session.close();
     }
 
-    public void delete(ChannelPost channelPost) {
+    public void remove(Object o) {
         Session session = HibernateSessionFactoryUtil.getSessionFactory().openSession();
         Transaction tx1 = session.beginTransaction();
-        session.delete(channelPost);
+        session.remove(o);
         tx1.commit();
         session.close();
     }
 
-    public Link findMessageThreadById(int id) {
+    public Link findLinkById(int id) {
         return HibernateSessionFactoryUtil.getSessionFactory().openSession().get(Link.class, id);
     }
     public List<ChannelPost> findAll() {

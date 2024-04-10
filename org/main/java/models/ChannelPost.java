@@ -9,13 +9,13 @@ import java.util.List;
 @Table(name = "channel_post")
 public class ChannelPost {
     @Id
-    @Column(name = "id")
+    @Column(name = "channel_post_id")
     private int id;
     @Column(name = "has_link")
     private boolean hasLink;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
-    private List<Link> links = new ArrayList<>();
+    @OneToMany(mappedBy = "channelPost", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<Link> links;
     public ChannelPost() {
     }
 
