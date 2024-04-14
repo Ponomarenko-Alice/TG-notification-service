@@ -1,21 +1,11 @@
-import models.ChannelPost;
-import models.Link;
-import service.ChannelPostService;
-
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
+
 
 public class Main {
-    public static void main(String[] args) throws SQLException {
-        ChannelPostService channelPostService = new ChannelPostService();
-        ChannelPost post = new ChannelPost( (int) (Math.random()*1000), false);
-        List<Link> list = post.getLinks() == null ? new ArrayList<>() : post.getLinks();
-        Link newLink = new Link("https://some/link/raf", post);
-        list.add(newLink);
-        post.setLinks(list);
-        post.setHasLink(true);
-        channelPostService.save(post);
-
+    public static void main(String[] args) throws SQLException, InterruptedException {
+        Timer time = new Timer();
+        ScheduledTask st = new ScheduledTask();
+        time.schedule(st, 0, 30000);  // task repeating every 30 sec
     }
 }

@@ -2,12 +2,14 @@
 bin/
 docs/
 td/
+tdlib/
 
 # Libraries related directories
 lib/*
 
 # Log files extensions
 *.log
+*.binlog
 # IDEA related files
 .idea/
 out/
