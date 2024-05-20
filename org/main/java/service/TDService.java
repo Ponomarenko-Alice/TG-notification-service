@@ -25,6 +25,7 @@ import java.util.regex.Matcher;
 
 public final class TDService {
     private static Client client = null;
+
     private static final Long CHANNELID = -1002021174198L;
     private static final ChannelPostService channelPostService = new ChannelPostService();
 
@@ -38,24 +39,24 @@ public final class TDService {
     private static final Lock authorizationLock = new ReentrantLock();
     private static final Condition gotAuthorization = authorizationLock.newCondition();
 
-    private static final ConcurrentMap<Long, TdApi.User> users = new ConcurrentHashMap<Long, TdApi.User>();
-    private static final ConcurrentMap<Long, TdApi.BasicGroup> basicGroups = new ConcurrentHashMap<Long, TdApi.BasicGroup>();
-    private static final ConcurrentMap<Long, TdApi.Supergroup> supergroups = new ConcurrentHashMap<Long, TdApi.Supergroup>();
-    private static final ConcurrentMap<Integer, TdApi.SecretChat> secretChats = new ConcurrentHashMap<Integer, TdApi.SecretChat>();
+    private static final ConcurrentMap<Long, TdApi.User> users = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Long, TdApi.BasicGroup> basicGroups = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Long, TdApi.Supergroup> supergroups = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Integer, TdApi.SecretChat> secretChats = new ConcurrentHashMap<>();
 
-    private static final ConcurrentMap<Long, TdApi.Chat> chats = new ConcurrentHashMap<Long, TdApi.Chat>();
+    private static final ConcurrentMap<Long, TdApi.Chat> chats = new ConcurrentHashMap<>();
 
-    private static final ConcurrentMap<Long, TdApi.UserFullInfo> usersFullInfo = new ConcurrentHashMap<Long, TdApi.UserFullInfo>();
-    private static final ConcurrentMap<Long, TdApi.BasicGroupFullInfo> basicGroupsFullInfo = new ConcurrentHashMap<Long, TdApi.BasicGroupFullInfo>();
-    private static final ConcurrentMap<Long, TdApi.SupergroupFullInfo> supergroupsFullInfo = new ConcurrentHashMap<Long, TdApi.SupergroupFullInfo>();
+    private static final ConcurrentMap<Long, TdApi.UserFullInfo> usersFullInfo = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Long, TdApi.BasicGroupFullInfo> basicGroupsFullInfo = new ConcurrentHashMap<>();
+    private static final ConcurrentMap<Long, TdApi.SupergroupFullInfo> supergroupsFullInfo = new ConcurrentHashMap<>();
 
-    private static final String newLine = System.getProperty("line.separator");
+    private static final String newLine = System.lineSeparator();
     private static final String commandsLine = "Enter command (gcs - GetChats, gc <chatId> - GetChat, me - GetMe, sm <chatId> <message> - SendMessage, lo - LogOut, q - Quit): ";
     private static volatile String currentPrompt = null;
 
     private static void print(String str) {
         if (currentPrompt != null) {
-            System.out.println("");
+            System.out.println();
         }
         System.out.println(str);
         if (currentPrompt != null) {
@@ -231,7 +232,7 @@ public final class TDService {
         client.send(new TdApi.SendMessage(chatId, 0, null, null, replyMarkup, content), defaultHandler);
     }
 
-    private static void fillDataBaseUpdatedChannelPosts(TdApi.Messages messages) {
+    private static void fillDataBaseUpdatedChannelPosts(TdApi.Messages messages) throws InterruptedException {
         List<Integer> arrayList = channelPostService.findAllChannelPosts()
                 .stream()
                 .map(ChannelPost::getId)
@@ -240,7 +241,10 @@ public final class TDService {
             if (!arrayList.contains((int) message.id)) {
                 channelPostService.save(new ChannelPost((int) message.id, false));
             }
+
             ChannelPost post = (ChannelPost) channelPostService.find((int) message.id);
+            List<Link> linkList = post.getLinks() == null ? new ArrayList<>() : post.getLinks();
+            Thread.sleep(100);
             client.send(new TdApi.GetMessageThreadHistory(CHANNELID, message.id, 1, -99, 100), resultThread -> {
                 if (resultThread.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
                     TdApi.Messages messageThread = (TdApi.Messages) resultThread;
@@ -250,13 +254,9 @@ public final class TDService {
                         System.out.println(commentText + " --- " + message.id);
                         Pattern pattern = Pattern.compile("https://[a-zA-Z0-9-.]+");
                         Matcher matcher = pattern.matcher(commentText);
-                        //while (matcher.find()) обеспечивает поиск и вывод всех найденных URL-адресов в заданной строке, а не только первого совпадения.
                         while (matcher.find()) {
-                            //create lintList only if link exists in current post's comments
-                            List<Link> linkList = post.getLinks() == null ? new ArrayList<>() : post.getLinks();
                             Link link = new Link(matcher.group(), post);
                             linkList.add(link);
-                            post.setLinks(linkList);
                             post.setHasLink(true);
                             channelPostService.save(post);
                         }
@@ -266,13 +266,19 @@ public final class TDService {
         }
     }
 
-    private static void getChatHistory() throws InterruptedException {
+    private static void scheduleTaskExecute() throws InterruptedException {
         Thread.sleep(1000);
+        TdApi.Messages messages1;
         client.send(new TdApi.GetChatHistory(CHANNELID, 1, -99, 100, false), result -> {
             if (result.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
-                fillDataBaseUpdatedChannelPosts((TdApi.Messages) result);
+                try {
+                    fillDataBaseUpdatedChannelPosts((TdApi.Messages) result);
+                } catch (InterruptedException e) {
+                    System.out.println("Error in filling db ----------");
+                }
+
             } else {
-                System.err.println("Error fetching chat history: " + result);
+                System.err.println("Error fetching chat history: " + result.getConstructor());
             }
         });
     }
@@ -293,18 +299,18 @@ public final class TDService {
             // await authorization
             authorizationLock.lock();
             try {
-                while (!haveAuthorization) {
+                if (!haveAuthorization) {
                     gotAuthorization.await();
                 }
             } finally {
                 authorizationLock.unlock();
             }
             if (haveAuthorization) {
-                getChatHistory();
+                scheduleTaskExecute();
             }
         }
         if (!canQuit) {
-            Thread.sleep(1);
+            Thread.sleep(10);
         }
     }
 
@@ -360,22 +366,7 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateChatPhoto.CONSTRUCTOR: {
-                    TdApi.UpdateChatPhoto updateChat = (TdApi.UpdateChatPhoto) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.photo = updateChat.photo;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatPermissions.CONSTRUCTOR: {
-                    TdApi.UpdateChatPermissions update = (TdApi.UpdateChatPermissions) object;
-                    TdApi.Chat chat = chats.get(update.chatId);
-                    synchronized (chat) {
-                        chat.permissions = update.permissions;
-                    }
-                    break;
-                }
+
                 case TdApi.UpdateChatLastMessage.CONSTRUCTOR: {
                     TdApi.UpdateChatLastMessage updateChat = (TdApi.UpdateChatLastMessage) object;
                     TdApi.Chat chat = chats.get(updateChat.chatId);
@@ -384,12 +375,7 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateChatPosition.CONSTRUCTOR: {
-                    TdApi.UpdateChatPosition updateChat = (TdApi.UpdateChatPosition) object;
-                    if (updateChat.position.list.getConstructor() != TdApi.ChatListMain.CONSTRUCTOR) {
-                        break;
-                    }
-                }
+
                 case TdApi.UpdateChatReadInbox.CONSTRUCTOR: {
                     TdApi.UpdateChatReadInbox updateChat = (TdApi.UpdateChatReadInbox) object;
                     TdApi.Chat chat = chats.get(updateChat.chatId);
@@ -415,36 +401,11 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateChatAvailableReactions.CONSTRUCTOR: {
-                    TdApi.UpdateChatAvailableReactions updateChat = (TdApi.UpdateChatAvailableReactions) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.availableReactions = updateChat.availableReactions;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatDraftMessage.CONSTRUCTOR: {
-                    TdApi.UpdateChatDraftMessage updateChat = (TdApi.UpdateChatDraftMessage) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.draftMessage = updateChat.draftMessage;
-
-                    }
-                    break;
-                }
                 case TdApi.UpdateChatMessageSender.CONSTRUCTOR: {
                     TdApi.UpdateChatMessageSender updateChat = (TdApi.UpdateChatMessageSender) object;
                     TdApi.Chat chat = chats.get(updateChat.chatId);
                     synchronized (chat) {
                         chat.messageSenderId = updateChat.messageSenderId;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatMessageAutoDeleteTime.CONSTRUCTOR: {
-                    TdApi.UpdateChatMessageAutoDeleteTime updateChat = (TdApi.UpdateChatMessageAutoDeleteTime) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.messageAutoDeleteTime = updateChat.messageAutoDeleteTime;
                     }
                     break;
                 }
@@ -504,27 +465,11 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateChatVideoChat.CONSTRUCTOR: {
-                    TdApi.UpdateChatVideoChat updateChat = (TdApi.UpdateChatVideoChat) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.videoChat = updateChat.videoChat;
-                    }
-                    break;
-                }
                 case TdApi.UpdateChatDefaultDisableNotification.CONSTRUCTOR: {
                     TdApi.UpdateChatDefaultDisableNotification update = (TdApi.UpdateChatDefaultDisableNotification) object;
                     TdApi.Chat chat = chats.get(update.chatId);
                     synchronized (chat) {
                         chat.defaultDisableNotification = update.defaultDisableNotification;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatHasProtectedContent.CONSTRUCTOR: {
-                    TdApi.UpdateChatHasProtectedContent updateChat = (TdApi.UpdateChatHasProtectedContent) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.hasProtectedContent = updateChat.hasProtectedContent;
                     }
                     break;
                 }
@@ -552,16 +497,6 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateChatHasScheduledMessages.CONSTRUCTOR: {
-                    TdApi.UpdateChatHasScheduledMessages update = (TdApi.UpdateChatHasScheduledMessages) object;
-                    TdApi.Chat chat = chats.get(update.chatId);
-                    synchronized (chat) {
-                        chat.hasScheduledMessages = update.hasScheduledMessages;
-                    }
-                    break;
-                }
-
-
                 case TdApi.UpdateUserFullInfo.CONSTRUCTOR:
                     TdApi.UpdateUserFullInfo updateUserFullInfo = (TdApi.UpdateUserFullInfo) object;
                     usersFullInfo.put(updateUserFullInfo.userId, updateUserFullInfo.userFullInfo);
