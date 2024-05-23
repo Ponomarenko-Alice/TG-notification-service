@@ -17,6 +17,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.logging.LogManager;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -31,6 +33,7 @@ public final class TDService {
     private static final ConcurrentMap<Long, TdApi.User> users = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Long, TdApi.Chat> chats = new ConcurrentHashMap<>();
     private static final String newLine = System.lineSeparator();
+    private static final Logger logger = Logger.getLogger(TDService.class.getName());
     private static Client client = null;
     private static TdApi.AuthorizationState authorizationState = null;
     private static volatile boolean haveAuthorization = false;
@@ -47,7 +50,6 @@ public final class TDService {
             System.out.print(currentPrompt);
         }
     }
-
 
     private static void onAuthorizationStateUpdated(TdApi.AuthorizationState authorizationState) {
         if (authorizationState != null) {
@@ -141,13 +143,11 @@ public final class TDService {
         try {
             str = reader.readLine();
         } catch (IOException e) {
-            //todo log
-            e.printStackTrace();
+            logger.warning(e.getMessage());
         }
         currentPrompt = null;
         return str;
     }
-
 
     private static void sendMessage(long chatId, String message) {
         // initialize reply markup just for testing
@@ -214,16 +214,21 @@ public final class TDService {
                 try {
                     fillDataBaseUpdatedChannelPosts((TdApi.Messages) result);
                 } catch (InterruptedException e) {
-                    //todo log
+                    logger.warning(e.getMessage());
                 }
             } else {
-                //todo log
-                System.err.println("Error fetching chat history: " + result.getConstructor());
+                logger.warning("Error fetching chat history: " + result.getConstructor());
             }
         });
     }
 
     public static void main(String[] args) throws InterruptedException {
+        try {
+            LogManager.getLogManager().readConfiguration(
+                    TDService.class.getResourceAsStream("/logging.properties"));
+        } catch (IOException e) {
+            System.err.println("Could not setup logger configuration: " + e.toString());
+        }
         // set log message handler to handle only fatal errors (0) and plain log messages (-1)
         Client.setLogMessageHandler(0, new LogMessageHandler());
 
@@ -249,7 +254,6 @@ public final class TDService {
                 scheduleTaskExecute();
                 Thread.sleep(10000);
             }
-
         }
         while (!canQuit) {
             Thread.sleep(1);
@@ -313,7 +317,7 @@ public final class TDService {
         // wait at least 10 seconds after the error is thrown
         while (errorThrowTime.get() >= System.currentTimeMillis() - 10000) {
             try {
-                Thread.sleep(1000 /* milliseconds */);
+                Thread.sleep(1000);
             } catch (InterruptedException ignore) {
                 Thread.currentThread().interrupt();
             }
@@ -347,7 +351,6 @@ public final class TDService {
                     }
                     break;
                 }
-
                 case TdApi.UpdateChatActionBar.CONSTRUCTOR: {
                     TdApi.UpdateChatActionBar updateChat = (TdApi.UpdateChatActionBar) object;
                     TdApi.Chat chat = chats.get(updateChat.chatId);
@@ -412,48 +415,9 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateChatUnreadReactionCount.CONSTRUCTOR: {
-                    TdApi.UpdateChatUnreadReactionCount updateChat = (TdApi.UpdateChatUnreadReactionCount) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.unreadReactionCount = updateChat.unreadReactionCount;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatDefaultDisableNotification.CONSTRUCTOR: {
-                    TdApi.UpdateChatDefaultDisableNotification update = (TdApi.UpdateChatDefaultDisableNotification) object;
-                    TdApi.Chat chat = chats.get(update.chatId);
-                    synchronized (chat) {
-                        chat.defaultDisableNotification = update.defaultDisableNotification;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatIsTranslatable.CONSTRUCTOR: {
-                    TdApi.UpdateChatIsTranslatable update = (TdApi.UpdateChatIsTranslatable) object;
-                    TdApi.Chat chat = chats.get(update.chatId);
-                    synchronized (chat) {
-                        chat.isTranslatable = update.isTranslatable;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatIsMarkedAsUnread.CONSTRUCTOR: {
-                    TdApi.UpdateChatIsMarkedAsUnread update = (TdApi.UpdateChatIsMarkedAsUnread) object;
-                    TdApi.Chat chat = chats.get(update.chatId);
-                    synchronized (chat) {
-                        chat.isMarkedAsUnread = update.isMarkedAsUnread;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatBlockList.CONSTRUCTOR: {
-                    TdApi.UpdateChatBlockList update = (TdApi.UpdateChatBlockList) object;
-                    TdApi.Chat chat = chats.get(update.chatId);
-                    synchronized (chat) {
-                        chat.blockList = update.blockList;
-                    }
-                    break;
-                }
+
                 default:
-                    print("Unsupported update:" + newLine + object);
+                    logger.warning("Unsupported update, " );
             }
         }
     }

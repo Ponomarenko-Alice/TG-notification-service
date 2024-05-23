@@ -8,6 +8,9 @@ tdlib/
 lib/*
 
 # Log files extensions
+application_log.txt.*
+application_log.txt
+
 *.log
 *.binlog
 # IDEA related files
