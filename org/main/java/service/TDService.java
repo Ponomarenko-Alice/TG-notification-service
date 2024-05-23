@@ -17,41 +17,32 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import java.util.regex.Matcher;
-
 
 public final class TDService {
-    private static Client client = null;
-
     private static final Long CHANNELID = -1002021174198L;
     private static final ChannelPostService channelPostService = new ChannelPostService();
-
-    private static TdApi.AuthorizationState authorizationState = null;
-    private static volatile boolean haveAuthorization = false;
-    private static volatile boolean needQuit = false;
-    private static volatile boolean canQuit = false;
-
     private static final Client.ResultHandler defaultHandler = new DefaultHandler();
-
     private static final Lock authorizationLock = new ReentrantLock();
     private static final Condition gotAuthorization = authorizationLock.newCondition();
-
     private static final ConcurrentMap<Long, TdApi.User> users = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Long, TdApi.BasicGroup> basicGroups = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Long, TdApi.Supergroup> supergroups = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Integer, TdApi.SecretChat> secretChats = new ConcurrentHashMap<>();
-
     private static final ConcurrentMap<Long, TdApi.Chat> chats = new ConcurrentHashMap<>();
-
     private static final ConcurrentMap<Long, TdApi.UserFullInfo> usersFullInfo = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Long, TdApi.BasicGroupFullInfo> basicGroupsFullInfo = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Long, TdApi.SupergroupFullInfo> supergroupsFullInfo = new ConcurrentHashMap<>();
-
     private static final String newLine = System.lineSeparator();
     private static final String commandsLine = "Enter command (gcs - GetChats, gc <chatId> - GetChat, me - GetMe, sm <chatId> <message> - SendMessage, lo - LogOut, q - Quit): ";
+    private static Client client = null;
+    private static TdApi.AuthorizationState authorizationState = null;
+    private static volatile boolean haveAuthorization = false;
+    private static volatile boolean needQuit = false;
+    private static volatile boolean canQuit = false;
     private static volatile String currentPrompt = null;
 
     private static void print(String str) {
@@ -255,10 +246,14 @@ public final class TDService {
                         Pattern pattern = Pattern.compile("https://[a-zA-Z0-9-.]+");
                         Matcher matcher = pattern.matcher(commentText);
                         while (matcher.find()) {
-                            Link link = new Link(matcher.group(), post);
-                            linkList.add(link);
-                            post.setHasLink(true);
-                            channelPostService.save(post);
+                            String tempLinkText = matcher.group();
+                            if (!postHasParticularLinkText(post, tempLinkText)) {
+                                linkList.add(new Link(tempLinkText, post));
+                                post.setHasLink(true);
+                                channelPostService.save(post);
+                            } else {
+                                System.out.println("===link already exists=== " + tempLinkText);
+                            }
                         }
                     }
                 }
@@ -266,7 +261,18 @@ public final class TDService {
         }
     }
 
-    private static void scheduleTaskExecute() throws InterruptedException {
+    private static boolean postHasParticularLinkText(ChannelPost post, String linkText) {
+        boolean hasLink = false;
+        for (Link existedLink : post.getLinks()) {
+            if (linkText.equals(existedLink.getLinkText())) {
+                hasLink = true;
+                break;
+            }
+        }
+        return hasLink;
+    }
+
+    public static void scheduleTaskExecute() throws InterruptedException {
         Thread.sleep(1000);
         TdApi.Messages messages1;
         client.send(new TdApi.GetChatHistory(CHANNELID, 1, -99, 100, false), result -> {
@@ -283,7 +289,7 @@ public final class TDService {
         });
     }
 
-    public static void execute() throws InterruptedException {
+    public static void main(String[] args) throws InterruptedException {
         // set log message handler to handle only fatal errors (0) and plain log messages (-1)
         Client.setLogMessageHandler(0, new LogMessageHandler());
 
@@ -295,22 +301,94 @@ public final class TDService {
             throw new IOError(new IOException("Write access to the current directory is required"));
         }
         client = Client.create(new UpdateHandler(), null, null);
-        if (!needQuit) {
-            // await authorization
+
+        while (!needQuit) {
             authorizationLock.lock();
             try {
-                if (!haveAuthorization) {
+                while (!haveAuthorization) {
                     gotAuthorization.await();
                 }
             } finally {
                 authorizationLock.unlock();
             }
-            if (haveAuthorization) {
+            while (haveAuthorization) {
                 scheduleTaskExecute();
+                Thread.sleep(10000);
+            }
+
+        }
+        while (!canQuit) {
+            Thread.sleep(1);
+        }
+    }
+
+    private static void onFatalError(String errorMessage) {
+        final class ThrowError implements Runnable {
+            private final String errorMessage;
+            private final AtomicLong errorThrowTime;
+
+            private ThrowError(String errorMessage, AtomicLong errorThrowTime) {
+                this.errorMessage = errorMessage;
+                this.errorThrowTime = errorThrowTime;
+            }
+
+            @Override
+            public void run() {
+                if (isDatabaseBrokenError(errorMessage) || isDiskFullError(errorMessage) || isDiskError(errorMessage)) {
+                    processExternalError();
+                    return;
+                }
+
+                errorThrowTime.set(System.currentTimeMillis());
+                throw new ClientError("TDLib fatal error: " + errorMessage);
+            }
+
+            private void processExternalError() {
+                errorThrowTime.set(System.currentTimeMillis());
+                throw new ExternalClientError("Fatal error: " + errorMessage);
+            }
+
+            private boolean isDatabaseBrokenError(String message) {
+                return message.contains("Wrong key or database is corrupted") ||
+                        message.contains("SQL logic error or missing database") ||
+                        message.contains("database disk image is malformed") ||
+                        message.contains("file is encrypted or is not a database") ||
+                        message.contains("unsupported file format") ||
+                        message.contains("Database was corrupted and deleted during execution and can't be recreated");
+            }
+
+            private boolean isDiskFullError(String message) {
+                return message.contains("PosixError : No space left on device") ||
+                        message.contains("database or disk is full");
+            }
+
+            private boolean isDiskError(String message) {
+                return message.contains("I/O error") || message.contains("Structure needs cleaning");
+            }
+
+            final class ClientError extends Error {
+                private ClientError(String message) {
+                    super(message);
+                }
+            }
+
+            final class ExternalClientError extends Error {
+                public ExternalClientError(String message) {
+                    super(message);
+                }
             }
         }
-        if (!canQuit) {
-            Thread.sleep(10);
+
+        final AtomicLong errorThrowTime = new AtomicLong(Long.MAX_VALUE);
+        new Thread(new ThrowError(errorMessage, errorThrowTime), "TDLib fatal error thread").start();
+
+        // wait at least 10 seconds after the error is thrown
+        while (errorThrowTime.get() >= System.currentTimeMillis() - 10000) {
+            try {
+                Thread.sleep(1000 /* milliseconds */);
+            } catch (InterruptedException ignore) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -540,76 +618,6 @@ public final class TDService {
                 return;
             }
             System.err.println(message);
-        }
-    }
-
-    private static void onFatalError(String errorMessage) {
-        final class ThrowError implements Runnable {
-            private final String errorMessage;
-            private final AtomicLong errorThrowTime;
-
-            private ThrowError(String errorMessage, AtomicLong errorThrowTime) {
-                this.errorMessage = errorMessage;
-                this.errorThrowTime = errorThrowTime;
-            }
-
-            @Override
-            public void run() {
-                if (isDatabaseBrokenError(errorMessage) || isDiskFullError(errorMessage) || isDiskError(errorMessage)) {
-                    processExternalError();
-                    return;
-                }
-
-                errorThrowTime.set(System.currentTimeMillis());
-                throw new ClientError("TDLib fatal error: " + errorMessage);
-            }
-
-            private void processExternalError() {
-                errorThrowTime.set(System.currentTimeMillis());
-                throw new ExternalClientError("Fatal error: " + errorMessage);
-            }
-
-            final class ClientError extends Error {
-                private ClientError(String message) {
-                    super(message);
-                }
-            }
-
-            final class ExternalClientError extends Error {
-                public ExternalClientError(String message) {
-                    super(message);
-                }
-            }
-
-            private boolean isDatabaseBrokenError(String message) {
-                return message.contains("Wrong key or database is corrupted") ||
-                        message.contains("SQL logic error or missing database") ||
-                        message.contains("database disk image is malformed") ||
-                        message.contains("file is encrypted or is not a database") ||
-                        message.contains("unsupported file format") ||
-                        message.contains("Database was corrupted and deleted during execution and can't be recreated");
-            }
-
-            private boolean isDiskFullError(String message) {
-                return message.contains("PosixError : No space left on device") ||
-                        message.contains("database or disk is full");
-            }
-
-            private boolean isDiskError(String message) {
-                return message.contains("I/O error") || message.contains("Structure needs cleaning");
-            }
-        }
-
-        final AtomicLong errorThrowTime = new AtomicLong(Long.MAX_VALUE);
-        new Thread(new ThrowError(errorMessage, errorThrowTime), "TDLib fatal error thread").start();
-
-        // wait at least 10 seconds after the error is thrown
-        while (errorThrowTime.get() >= System.currentTimeMillis() - 10000) {
-            try {
-                Thread.sleep(1000 /* milliseconds */);
-            } catch (InterruptedException ignore) {
-                Thread.currentThread().interrupt();
-            }
         }
     }
 }
