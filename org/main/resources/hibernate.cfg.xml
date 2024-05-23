@@ -13,6 +13,6 @@
         <property name="dialect">org.hibernate.dialect.PostgreSQLDialect</property> <!-- DB Dialect -->
         <property name="show_sql">true</property> <!-- Show SQL in console -->
         <property name="format_sql">true</property> <!-- Show SQL formatted -->
-        <property name="hibernate.hbm2ddl.auto">update</property>
+        <property name="hibernate.hbm2ddl.auto">create</property>
     </session-factory>
 </hibernate-configuration>
