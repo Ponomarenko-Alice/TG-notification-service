@@ -23,21 +23,14 @@ import java.util.stream.Collectors;
 
 
 public final class TDService {
-    private static final Long CHANNELID = -1002021174198L;
+    private static final Long CHANNEL_ID = -1002021174198L;
     private static final ChannelPostService channelPostService = new ChannelPostService();
     private static final Client.ResultHandler defaultHandler = new DefaultHandler();
     private static final Lock authorizationLock = new ReentrantLock();
     private static final Condition gotAuthorization = authorizationLock.newCondition();
     private static final ConcurrentMap<Long, TdApi.User> users = new ConcurrentHashMap<>();
-    private static final ConcurrentMap<Long, TdApi.BasicGroup> basicGroups = new ConcurrentHashMap<>();
-    private static final ConcurrentMap<Long, TdApi.Supergroup> supergroups = new ConcurrentHashMap<>();
-    private static final ConcurrentMap<Integer, TdApi.SecretChat> secretChats = new ConcurrentHashMap<>();
     private static final ConcurrentMap<Long, TdApi.Chat> chats = new ConcurrentHashMap<>();
-    private static final ConcurrentMap<Long, TdApi.UserFullInfo> usersFullInfo = new ConcurrentHashMap<>();
-    private static final ConcurrentMap<Long, TdApi.BasicGroupFullInfo> basicGroupsFullInfo = new ConcurrentHashMap<>();
-    private static final ConcurrentMap<Long, TdApi.SupergroupFullInfo> supergroupsFullInfo = new ConcurrentHashMap<>();
     private static final String newLine = System.lineSeparator();
-    private static final String commandsLine = "Enter command (gcs - GetChats, gc <chatId> - GetChat, me - GetMe, sm <chatId> <message> - SendMessage, lo - LogOut, q - Quit): ";
     private static Client client = null;
     private static TdApi.AuthorizationState authorizationState = null;
     private static volatile boolean haveAuthorization = false;
@@ -140,24 +133,6 @@ public final class TDService {
         }
     }
 
-    private static int toInt(String arg) {
-        int result = 0;
-        try {
-            result = Integer.parseInt(arg);
-        } catch (NumberFormatException ignored) {
-        }
-        return result;
-    }
-
-    private static long getChatId(String arg) {
-        long chatId = 0;
-        try {
-            chatId = Long.parseLong(arg);
-        } catch (NumberFormatException ignored) {
-        }
-        return chatId;
-    }
-
     private static String promptString(String prompt) {
         System.out.print(prompt);
         currentPrompt = prompt;
@@ -166,53 +141,13 @@ public final class TDService {
         try {
             str = reader.readLine();
         } catch (IOException e) {
+            //todo log
             e.printStackTrace();
         }
         currentPrompt = null;
         return str;
     }
 
-
-    private static void getCommand() {
-        String command = promptString(commandsLine);
-        String[] commands = command.split(" ", 2);
-        try {
-            switch (commands[0]) {
-                case "h": {
-                }
-                case "gcs":
-                    int limit = 20;
-                    if (commands.length > 1) {
-                        limit = toInt(commands[1]);
-                    }
-                    //getMainChatList(limit);
-                    break;
-                case "gc":
-                    client.send(new TdApi.GetChat(getChatId(commands[1])), defaultHandler);
-                    break;
-                case "me":
-                    client.send(new TdApi.GetMe(), defaultHandler);
-                    break;
-                case "sm":
-                    String[] args = commands[1].split(" ", 2);
-                    sendMessage(getChatId(args[0]), args[1]);
-                    break;
-                case "lo":
-                    haveAuthorization = false;
-                    client.send(new TdApi.LogOut(), defaultHandler);
-                    break;
-                case "q":
-                    needQuit = true;
-                    haveAuthorization = false;
-                    client.send(new TdApi.Close(), defaultHandler);
-                    break;
-                default:
-                    System.err.println("Unsupported command: " + command);
-            }
-        } catch (ArrayIndexOutOfBoundsException e) {
-            print("Not enough arguments");
-        }
-    }
 
     private static void sendMessage(long chatId, String message) {
         // initialize reply markup just for testing
@@ -231,11 +166,11 @@ public final class TDService {
             }
 
             ChannelPost post = (ChannelPost) channelPostService.find((int) message.id);
-            List<Link> linkList = post.getLinks() == null ? new ArrayList<>() : post.getLinks();
+            List<Link> linkList = post.getLinks();
 
             Thread.sleep(100);
 
-            client.send(new TdApi.GetMessageThreadHistory(CHANNELID, message.id, 1, -99, 100), resultThread -> {
+            client.send(new TdApi.GetMessageThreadHistory(CHANNEL_ID, message.id, 1, -99, 100), resultThread -> {
                 if (resultThread.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
                     TdApi.Messages messageThread = (TdApi.Messages) resultThread;
 
@@ -250,8 +185,6 @@ public final class TDService {
                                 String tempLinkText = matcher.group();
                                 if (!postHasParticularLinkText(post, tempLinkText)) {
                                     newLinks.add(new Link(tempLinkText, post));
-                                } else {
-                                    System.out.println("===link already exists=== " + tempLinkText);
                                 }
                             }
                         }
@@ -276,16 +209,15 @@ public final class TDService {
 
     public static void scheduleTaskExecute() throws InterruptedException {
         Thread.sleep(1000);
-        TdApi.Messages messages1;
-        client.send(new TdApi.GetChatHistory(CHANNELID, 1, -99, 100, false), result -> {
+        client.send(new TdApi.GetChatHistory(CHANNEL_ID, 1, -99, 100, false), result -> {
             if (result.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
                 try {
                     fillDataBaseUpdatedChannelPosts((TdApi.Messages) result);
                 } catch (InterruptedException e) {
-                    System.out.println("Error in filling db ----------");
+                    //todo log
                 }
-
             } else {
+                //todo log
                 System.err.println("Error fetching chat history: " + result.getConstructor());
             }
         });
@@ -415,58 +347,7 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateBasicGroup.CONSTRUCTOR:
-                    TdApi.UpdateBasicGroup updateBasicGroup = (TdApi.UpdateBasicGroup) object;
-                    basicGroups.put(updateBasicGroup.basicGroup.id, updateBasicGroup.basicGroup);
-                    break;
-                case TdApi.UpdateSupergroup.CONSTRUCTOR:
-                    TdApi.UpdateSupergroup updateSupergroup = (TdApi.UpdateSupergroup) object;
-                    supergroups.put(updateSupergroup.supergroup.id, updateSupergroup.supergroup);
-                    break;
-                case TdApi.UpdateSecretChat.CONSTRUCTOR:
-                    TdApi.UpdateSecretChat updateSecretChat = (TdApi.UpdateSecretChat) object;
-                    secretChats.put(updateSecretChat.secretChat.id, updateSecretChat.secretChat);
-                    break;
 
-                case TdApi.UpdateNewChat.CONSTRUCTOR: {
-                    TdApi.UpdateNewChat updateNewChat = (TdApi.UpdateNewChat) object;
-                    break;
-                }
-                case TdApi.UpdateChatTitle.CONSTRUCTOR: {
-                    TdApi.UpdateChatTitle updateChat = (TdApi.UpdateChatTitle) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.title = updateChat.title;
-                    }
-                    break;
-                }
-
-                case TdApi.UpdateChatLastMessage.CONSTRUCTOR: {
-                    TdApi.UpdateChatLastMessage updateChat = (TdApi.UpdateChatLastMessage) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.lastMessage = updateChat.lastMessage;
-                    }
-                    break;
-                }
-
-                case TdApi.UpdateChatReadInbox.CONSTRUCTOR: {
-                    TdApi.UpdateChatReadInbox updateChat = (TdApi.UpdateChatReadInbox) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.lastReadInboxMessageId = updateChat.lastReadInboxMessageId;
-                        chat.unreadCount = updateChat.unreadCount;
-                    }
-                    break;
-                }
-                case TdApi.UpdateChatReadOutbox.CONSTRUCTOR: {
-                    TdApi.UpdateChatReadOutbox updateChat = (TdApi.UpdateChatReadOutbox) object;
-                    TdApi.Chat chat = chats.get(updateChat.chatId);
-                    synchronized (chat) {
-                        chat.lastReadOutboxMessageId = updateChat.lastReadOutboxMessageId;
-                    }
-                    break;
-                }
                 case TdApi.UpdateChatActionBar.CONSTRUCTOR: {
                     TdApi.UpdateChatActionBar updateChat = (TdApi.UpdateChatActionBar) object;
                     TdApi.Chat chat = chats.get(updateChat.chatId);
@@ -571,20 +452,8 @@ public final class TDService {
                     }
                     break;
                 }
-                case TdApi.UpdateUserFullInfo.CONSTRUCTOR:
-                    TdApi.UpdateUserFullInfo updateUserFullInfo = (TdApi.UpdateUserFullInfo) object;
-                    usersFullInfo.put(updateUserFullInfo.userId, updateUserFullInfo.userFullInfo);
-                    break;
-                case TdApi.UpdateBasicGroupFullInfo.CONSTRUCTOR:
-                    TdApi.UpdateBasicGroupFullInfo updateBasicGroupFullInfo = (TdApi.UpdateBasicGroupFullInfo) object;
-                    basicGroupsFullInfo.put(updateBasicGroupFullInfo.basicGroupId, updateBasicGroupFullInfo.basicGroupFullInfo);
-                    break;
-                case TdApi.UpdateSupergroupFullInfo.CONSTRUCTOR:
-                    TdApi.UpdateSupergroupFullInfo updateSupergroupFullInfo = (TdApi.UpdateSupergroupFullInfo) object;
-                    supergroupsFullInfo.put(updateSupergroupFullInfo.supergroupId, updateSupergroupFullInfo.supergroupFullInfo);
-                    break;
                 default:
-                    // print("Unsupported update:" + newLine + object);
+                    print("Unsupported update:" + newLine + object);
             }
         }
     }
