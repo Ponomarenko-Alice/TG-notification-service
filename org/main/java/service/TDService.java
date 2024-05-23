@@ -224,10 +224,7 @@ public final class TDService {
     }
 
     private static void fillDataBaseUpdatedChannelPosts(TdApi.Messages messages) throws InterruptedException {
-        List<Integer> arrayList = channelPostService.findAllChannelPosts()
-                .stream()
-                .map(ChannelPost::getId)
-                .collect(Collectors.toList());
+        List<Integer> arrayList = channelPostService.findAllChannelPosts().stream().map(ChannelPost::getId).collect(Collectors.toList());
         for (TdApi.Message message : messages.messages) {
             if (!arrayList.contains((int) message.id)) {
                 channelPostService.save(new ChannelPost((int) message.id, false));
@@ -235,26 +232,38 @@ public final class TDService {
 
             ChannelPost post = (ChannelPost) channelPostService.find((int) message.id);
             List<Link> linkList = post.getLinks() == null ? new ArrayList<>() : post.getLinks();
+
             Thread.sleep(100);
+
             client.send(new TdApi.GetMessageThreadHistory(CHANNELID, message.id, 1, -99, 100), resultThread -> {
                 if (resultThread.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
                     TdApi.Messages messageThread = (TdApi.Messages) resultThread;
+
+                    List<Link> newLinks = new ArrayList<>();
                     for (TdApi.Message comment : messageThread.messages) {
-                        TdApi.MessageText messageText = (TdApi.MessageText) comment.content;
-                        String commentText = messageText.text.text;
-                        System.out.println(commentText + " --- " + message.id);
-                        Pattern pattern = Pattern.compile("https://[a-zA-Z0-9-.]+");
-                        Matcher matcher = pattern.matcher(commentText);
-                        while (matcher.find()) {
-                            String tempLinkText = matcher.group();
-                            if (!postHasParticularLinkText(post, tempLinkText)) {
-                                linkList.add(new Link(tempLinkText, post));
-                                post.setHasLink(true);
-                                channelPostService.save(post);
-                            } else {
-                                System.out.println("===link already exists=== " + tempLinkText);
+                        if (comment.content instanceof TdApi.MessageText) {
+                            TdApi.MessageText messageText = (TdApi.MessageText) comment.content;
+                            String commentText = messageText.text.text;
+                            Pattern pattern = Pattern.compile("https://[a-zA-Z0-9-.]+");
+                            Matcher matcher = pattern.matcher(commentText);
+                            while (matcher.find()) {
+                                String tempLinkText = matcher.group();
+                                if (!postHasParticularLinkText(post, tempLinkText)) {
+                                    newLinks.add(new Link(tempLinkText, post));
+                                } else {
+                                    System.out.println("===link already exists=== " + tempLinkText);
+                                }
                             }
                         }
+                    }
+                    synchronized (post) {
+                        for (Link newLink : newLinks) {
+                            if (!postHasParticularLinkText(post, newLink.getLinkText())) {
+                                linkList.add(newLink);
+                                post.setHasLink(true);
+                            }
+                        }
+                        channelPostService.save(post);
                     }
                 }
             });
@@ -262,14 +271,7 @@ public final class TDService {
     }
 
     private static boolean postHasParticularLinkText(ChannelPost post, String linkText) {
-        boolean hasLink = false;
-        for (Link existedLink : post.getLinks()) {
-            if (linkText.equals(existedLink.getLinkText())) {
-                hasLink = true;
-                break;
-            }
-        }
-        return hasLink;
+        return post.getLinks().stream().anyMatch(link -> link.getLinkText().equals(linkText));
     }
 
     public static void scheduleTaskExecute() throws InterruptedException {
@@ -349,17 +351,11 @@ public final class TDService {
             }
 
             private boolean isDatabaseBrokenError(String message) {
-                return message.contains("Wrong key or database is corrupted") ||
-                        message.contains("SQL logic error or missing database") ||
-                        message.contains("database disk image is malformed") ||
-                        message.contains("file is encrypted or is not a database") ||
-                        message.contains("unsupported file format") ||
-                        message.contains("Database was corrupted and deleted during execution and can't be recreated");
+                return message.contains("Wrong key or database is corrupted") || message.contains("SQL logic error or missing database") || message.contains("database disk image is malformed") || message.contains("file is encrypted or is not a database") || message.contains("unsupported file format") || message.contains("Database was corrupted and deleted during execution and can't be recreated");
             }
 
             private boolean isDiskFullError(String message) {
-                return message.contains("PosixError : No space left on device") ||
-                        message.contains("database or disk is full");
+                return message.contains("PosixError : No space left on device") || message.contains("database or disk is full");
             }
 
             private boolean isDiskError(String message) {
