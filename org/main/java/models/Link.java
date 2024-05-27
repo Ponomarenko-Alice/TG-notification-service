@@ -2,6 +2,8 @@ package models;
 
 import jakarta.persistence.*;
 
+import java.util.Objects;
+
 @Entity
 @Table(name = "links")
 public class Link {
@@ -46,6 +48,21 @@ public class Link {
 
     public void setLinkText(String link) {
         this.linkText = link;
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Link link = (Link) o;
+        return Objects.equals(linkText, link.linkText) &&
+                Objects.equals(channelPost, link.channelPost);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(linkText, channelPost);
     }
 
 
