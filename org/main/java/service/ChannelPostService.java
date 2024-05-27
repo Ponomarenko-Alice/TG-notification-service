@@ -5,6 +5,7 @@ import jakarta.persistence.OneToMany;
 import models.ChannelPost;
 import models.Link;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -42,6 +43,14 @@ public class ChannelPostService {
 
     public Link findLinkById(int id) {
         return channelPostDAO.findLinkById(id);
+    }
+
+    public List<Link> findAllLinks() {
+        List<Link> list = new ArrayList<>();
+        for (ChannelPost post: findAllChannelPosts()) {
+            list.addAll(post.getLinks());
+        }
+        return list;
     }
 
 

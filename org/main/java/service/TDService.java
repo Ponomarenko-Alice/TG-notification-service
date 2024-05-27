@@ -158,48 +158,63 @@ public final class TDService {
         client.send(new TdApi.SendMessage(chatId, 0, null, null, replyMarkup, content), defaultHandler);
     }
 
-    private static void fillDataBaseUpdatedChannelPosts(TdApi.Messages messages) throws InterruptedException {
-        List<Integer> arrayList = channelPostService.findAllChannelPosts().stream().map(ChannelPost::getId).collect(Collectors.toList());
-        for (TdApi.Message message : messages.messages) {
-            if (!arrayList.contains((int) message.id)) {
-                channelPostService.save(new ChannelPost((int) message.id, false));
+
+    private static List<Link> extractLinksFromMessage(TdApi.MessageText messageText, ChannelPost post) {
+        List<Link> links = new ArrayList<>();
+        String commentText = messageText.text.text;
+        Pattern pattern = Pattern.compile("https://[a-zA-Z0-9-.]+");
+        Matcher matcher = pattern.matcher(commentText);
+        while (matcher.find()) {
+            String tempLinkText = matcher.group();
+            links.add(new Link(tempLinkText, post));
+        }
+        return links;
+    }
+
+    /**
+     * @param post          - instance in BD
+     * @param messageThread - instance in TG
+     *                      Process message thread in TG and add new links to BD
+     */
+    private static void processMessageThread(ChannelPost post, TdApi.Messages messageThread) {
+        List<Link> existingLinks = post.getLinks();
+        List<Link> newLinks = new ArrayList<>();
+        for (TdApi.Message message: messageThread.messages) {
+            if (message.content instanceof TdApi.MessageText) {
+                TdApi.MessageText messageText = (TdApi.MessageText) message.content;
+                newLinks.addAll(extractLinksFromMessage(messageText, post));
             }
+        }
+        for (Link newLink: newLinks) {
+            if (!existingLinks.contains(newLink)) {
+                existingLinks.add(newLink);
+                post.setHasLink(true);
+            }
+        }
+        channelPostService.save(post);
+    }
 
-            ChannelPost post = (ChannelPost) channelPostService.find((int) message.id);
-            List<Link> linkList = post.getLinks();
 
-            Thread.sleep(100);
+    private static void updatePostLinks(ChannelPost post) {
+        client.send(new TdApi.GetMessageThreadHistory(CHANNEL_ID, post.getId(), 1, -99, 100), resultThread -> {
+            if (resultThread.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
+                TdApi.Messages messageThread = (TdApi.Messages) resultThread;
+                processMessageThread(post, messageThread);
+            }
+        });
+    }
 
-            client.send(new TdApi.GetMessageThreadHistory(CHANNEL_ID, message.id, 1, -99, 100), resultThread -> {
-                if (resultThread.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
-                    TdApi.Messages messageThread = (TdApi.Messages) resultThread;
+    private static synchronized void fillDataBaseUpdatedChannelPosts(TdApi.Messages messages) {
+        List<Integer> postIdList = channelPostService.findAllChannelPosts().stream()
+                .map(ChannelPost::getId).collect(Collectors.toList());
 
-                    List<Link> newLinks = new ArrayList<>();
-                    for (TdApi.Message comment : messageThread.messages) {
-                        if (comment.content instanceof TdApi.MessageText) {
-                            TdApi.MessageText messageText = (TdApi.MessageText) comment.content;
-                            String commentText = messageText.text.text;
-                            Pattern pattern = Pattern.compile("https://[a-zA-Z0-9-.]+");
-                            Matcher matcher = pattern.matcher(commentText);
-                            while (matcher.find()) {
-                                String tempLinkText = matcher.group();
-                                if (!postHasParticularLinkText(post, tempLinkText)) {
-                                    newLinks.add(new Link(tempLinkText, post));
-                                }
-                            }
-                        }
-                    }
-                    synchronized (post) {
-                        for (Link newLink : newLinks) {
-                            if (!postHasParticularLinkText(post, newLink.getLinkText())) {
-                                linkList.add(newLink);
-                                post.setHasLink(true);
-                            }
-                        }
-                        channelPostService.save(post);
-                    }
-                }
-            });
+        for (TdApi.Message message : messages.messages) {
+            int messageId = (int) message.id;
+            if (!postIdList.contains(messageId)) {
+                channelPostService.save(new ChannelPost(messageId, false));
+            }
+            ChannelPost post = (ChannelPost) channelPostService.find(messageId);
+            updatePostLinks(post);
         }
     }
 
@@ -207,27 +222,83 @@ public final class TDService {
         return post.getLinks().stream().anyMatch(link -> link.getLinkText().equals(linkText));
     }
 
+
     public static void scheduleTaskExecute() throws InterruptedException {
         Thread.sleep(1000);
         client.send(new TdApi.GetChatHistory(CHANNEL_ID, 1, -99, 100, false), result -> {
             if (result.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
-                try {
-                    fillDataBaseUpdatedChannelPosts((TdApi.Messages) result);
-                } catch (InterruptedException e) {
-                    logger.warning(e.getMessage());
-                }
+                //проверить на удаление ссылок и обновить бд
+                updateDeletedMessagesFromChannel();
+                //проверить на новые в тг и добавить в бд
+                fillDataBaseUpdatedChannelPosts((TdApi.Messages) result);
+                //отправить сообщение с постами без ссылок
+                //------
             } else {
                 logger.warning("Error fetching chat history: " + result.getConstructor());
             }
         });
     }
 
+    /**
+     * Fetch all links from a given ChannelPost in Telegram.
+     *
+     * @param post - the ChannelPost to fetch links from
+     * @return a List of Links extracted from the post's message thread in Telegram
+     */
+    private static List<Link> getAllPostLinksFromTG(ChannelPost post) {
+        List<Link> links = new ArrayList<>();
+
+        TdApi.GetMessageThreadHistory request = new TdApi.GetMessageThreadHistory(CHANNEL_ID, post.getId(), 1, -99, 100);
+        client.send(request, result -> {
+            if (result.getConstructor() == TdApi.Messages.CONSTRUCTOR) {
+                TdApi.Messages messageThread = (TdApi.Messages) result;
+                for (TdApi.Message message : messageThread.messages) {
+                    if (message.content instanceof TdApi.MessageText) {
+                        TdApi.MessageText messageText = (TdApi.MessageText) message.content;
+                        links.addAll(extractLinksFromMessage(messageText, post));
+                    }
+                }
+            } else {
+                logger.warning("Ошибка при получении истории сообщений: " + result.getConstructor());
+            }
+        });
+
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warning("Поток прерван во время ожидания истории сообщений: " + e.getMessage());
+        }
+
+        return links;
+    }
+
+
+
+    /**
+     * Compare link existence in TG and drop one from db if it was deleted in TG.
+     */
+    private static synchronized void updateDeletedMessagesFromChannel() {
+        List<Link> allLinks = channelPostService.findAllLinks();
+        for (Link link : allLinks) {
+            ChannelPost post = link.getChannelPost();
+            if (!getAllPostLinksFromTG(post).contains(link)) {
+                channelPostService.delete(link);
+                if (post.getLinks().isEmpty()) {
+                    post.setHasLink(false);
+                    channelPostService.update(post);
+                }
+            }
+        }
+    }
+
+
     public static void main(String[] args) throws InterruptedException {
         try {
             LogManager.getLogManager().readConfiguration(
                     TDService.class.getResourceAsStream("/logging.properties"));
         } catch (IOException e) {
-            System.err.println("Could not setup logger configuration: " + e.toString());
+            System.err.println("Could not setup logger configuration: " + e);
         }
         // set log message handler to handle only fatal errors (0) and plain log messages (-1)
         Client.setLogMessageHandler(0, new LogMessageHandler());
@@ -417,7 +488,7 @@ public final class TDService {
                 }
 
                 default:
-                    logger.warning("Unsupported update, " );
+                    logger.warning("Unsupported update, ");
             }
         }
     }
